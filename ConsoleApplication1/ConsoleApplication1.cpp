@@ -1,6 +1,8 @@
-﻿#include <iostream>
+#include <iostream>
 #include <vector>
 #include <memory>
+#include <fstream>
+
 #include <boost/filesystem.hpp>
 
 namespace fs = boost::filesystem;
@@ -32,6 +34,7 @@ private:
     std::vector<std::shared_ptr<Node>> children_;
 };
 
+
 // Представление
 class TreeView {
 public:
@@ -40,25 +43,23 @@ public:
     }
 
     void showFiles(const std::vector<std::string>& files) {
-        std::cout << "Found files:" << std::endl;
+        std::cout << "Найденные файлы:" << std::endl;
         for (const auto& file : files) {
             std::cout << file << std::endl;
         }
     }
 
-    std::string getFileNameToDelete() {
-        std::string fileName;
-        std::cout << "Enter filename to delete: ";
-        std::cin >> fileName;
-        return fileName;
-    }
+    
 
     char getMenuChoice() {
-        std::cout << "Menu:\n"
-            << "1. Show tree\n"
-            << "2. Search file\n"
-            << "3. Exit\n"
-            << "Enter choice: ";
+        std::cout << "Меню:\n"
+            << "1. Показать дерево\n"
+            << "2. Поиск файла\n"
+            << "3. Создать каталог\n"
+            << "4. Создать файл\n"
+            << "5. Удалить файл или каталог\n"
+            << "6. Выход\n"
+            << "Выберите: ";
         char choice;
         std::cin >> choice;
         return choice;
@@ -81,64 +82,15 @@ private:
     }
 };
 
-// Контроллер
-class TreeController {
-public:
-    TreeController(std::shared_ptr<Node> root, TreeView& view)
-        : root_(root), view_(view) {}
-
-    void processUserInput() {
-        char choice;
-        do {
-            choice = view_.getMenuChoice();
-            switch (choice) {
-            case '1':
-                view_.show(root_);
-                break;
-            case '2':
-                searchFile();
-                break;
-            case '3':
-                std::cout << "Exiting...\n";
-                break;
-            default:
-                std::cout << "Invalid choice!\n";
-            }
-        } while (choice != '3');
-    }
-
-private:
-    std::shared_ptr<Node> root_;
-    TreeView& view_;
-
-    void searchFile() {
-        std::string fileName;
-        std::cout << "Enter filename to search: ";
-        std::cin >> fileName;
-        std::vector<std::string> foundFiles;
-        search(root_, fileName, foundFiles);
-        view_.showFiles(foundFiles);
-    }
-
-    void search(std::shared_ptr<Node> node, const std::string& fileName, std::vector<std::string>& foundFiles) {
-        for (const auto& child : node->getChildren()) {
-            // Проверяем, содержит ли имя файла подстроку fileName
-            if (child->getName().find(fileName) != std::string::npos && !child->isDirectory()) {
-                foundFiles.push_back(child->getName());
-            }
-            if (child->isDirectory()) {
-                search(child, fileName, foundFiles);
-            }
-        }
-    }
-};
-
-// Создание дерева файловой системы
 std::shared_ptr<Node> buildFileSystemTree(const std::string& path) {
+    if (!fs::is_directory(path)) {
+        throw std::runtime_error("Этот путь не существует или не является каталогом.");
+    }
+
     auto root = std::make_shared<Node>(path, true);
 
     for (const auto& entry : fs::directory_iterator(path)) {
-        if (fs::is_directory(entry)) {
+        if (fs::is_directory(entry.status())) {
             auto node = buildFileSystemTree(entry.path().string());
             root->addChild(node);
         }
@@ -151,19 +103,158 @@ std::shared_ptr<Node> buildFileSystemTree(const std::string& path) {
 
     return root;
 }
+
+// Контроллер
+class TreeController {
+public:
+    TreeController(std::shared_ptr<Node> root, TreeView& view)
+        : root_(root), view_(view) {}
+
+    void processUserInput(const std::string& path) {
+        char choice;
+        do {
+            choice = view_.getMenuChoice();
+            switch (choice) {
+            case '1':
+                view_.show(root_);
+                break;
+            case '2':
+                searchFile();
+                break;
+            case '3':
+                createDirectory(path); 
+                break;
+            case '4':
+                createFile(path);
+                break;
+            case '5':
+                deleteFileOrDirectory(path);
+                break;
+            case '6':
+                std::cout << "Выход...\n";
+                break;
+            default:
+                std::cout << "Неверный выбор!\n";
+            }
+        } while (choice != '6');
+    }
+
+private:
+    std::shared_ptr<Node> root_;
+    TreeView& view_;
+
+    void searchFile() {
+        std::string fileName;
+        std::cout << "Введите имя файла для поиска: ";
+        std::cin >> fileName;
+        std::vector<std::string> foundFiles;
+        search(root_, fileName, foundFiles);
+        view_.showFiles(foundFiles);
+    }
+
+    void search(std::shared_ptr<Node> node, const std::string& fileName, std::vector<std::string>& foundFiles) {
+        for (const auto& child : node->getChildren()) {
+            if (child->getName().find(fileName) != std::string::npos && !child->isDirectory()) {
+                foundFiles.push_back(child->getName());
+            }
+            if (child->isDirectory()) {
+                search(child, fileName, foundFiles);
+            }
+        }
+    }
+
+    void createDirectory(const std::string& path) {
+        std::string dirName;
+        std::cout << "Введите имя каталога для создания: ";
+        std::cin >> dirName;
+        fs::path dirPath(path);
+        dirPath /= dirName;
+        if (fs::create_directory(dirPath)) {
+            std::cout << "Каталог успешно создан.\n";
+            root_ = buildFileSystemTree(path);
+        }
+        else {
+            std::cout << "Не удалось создать каталог.\n";
+        }
+    }
+    void createFile(const std::string& path) {
+        std::string fileName;
+        std::cout << "Введите имя файла с расширением: ";
+        std::cin >> fileName;
+        fs::path filePath(path);
+        filePath /= fileName;
+        if (fs::exists(filePath)) {
+            std::cout << "Файл уже существует.\n";
+            return;
+        }
+        std::ofstream file(filePath.string());
+        if (file.is_open()) {
+            std::cout << "Файл успешно создан.\n";
+            file.close();
+            root_ = buildFileSystemTree(path);
+        }
+        else {
+            std::cout << "Не удалось создать файл.\n";
+        }
+    }
+
+
+    void deleteFileOrDirectory(const std::string& path) {
+        std::string fileName;
+        std::cout << "Введите имя файла или каталога для удаления: ";
+        std::cin >> fileName;
+
+        fs::path dirPath(path);
+        dirPath /= fileName;
+
+        if (fs::exists(dirPath)) {
+            if (fs::is_directory(dirPath)) {
+                if (fs::remove_all(dirPath)) {
+                    std::cout << "Каталог успешно удален.\n";
+                }
+                else {
+                    std::cout << "Не удалось удалить каталог.\n";
+                }
+            }
+            else {
+                if (fs::remove(dirPath)) {
+                    std::cout << "Файл успешно удален.\n";
+                }
+                else {
+                    std::cout << "Не удалось удалить файл.\n";
+                }
+            }
+        }
+        else {
+            std::cout << "Файл или каталог не существует.\n";
+        }
+    }
+
+
+
+
+
+};
+
 int main() {
-    // Запрос пути у пользователя
     std::string path;
-    std::cout << "Enter path: ";
+    std::cout << "Введите путь: ";
     std::cin >> path;
 
-    // Создание представления и контроллера
     TreeView view;
-    auto root = buildFileSystemTree(path);
+    std::shared_ptr<Node> root;
+    try {
+        root = buildFileSystemTree(path);
+    }
+    catch (const std::exception& e) {
+        std::cerr << "Ошибка: " << e.what() << std::endl;
+        return 1;
+    }
     TreeController controller(root, view);
 
-    // Отображение меню и обработка действий пользователя
-    controller.processUserInput();
+    controller.processUserInput(path);
 
     return 0;
 }
+
+
