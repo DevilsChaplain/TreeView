@@ -2,7 +2,7 @@
 #include <vector>
 #include <memory>
 #include <fstream>
-
+#include <locale.h>
 #include <boost/filesystem.hpp>
 
 namespace fs = boost::filesystem;
@@ -38,6 +38,7 @@ private:
 // Представление
 class TreeView {
 public:
+
     void show(std::shared_ptr<Node> root) {
         displayNode(root, 0);
     }
@@ -237,6 +238,8 @@ private:
 };
 
 int main() {
+    setlocale(LC_ALL, "Russian");
+
     std::string path;
     std::cout << "Введите путь: ";
     std::cin >> path;
